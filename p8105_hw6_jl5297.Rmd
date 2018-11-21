@@ -10,6 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readxl)
 library(tidyverse)
 library(httr)
+library("leaps")
+library(modelr)
 
 knitr::opts_chunk$set(
   collapse = TRUE,
@@ -147,10 +149,133 @@ glm_results %>%
     ggplot(aes(x = city_state, y = odds_ratio)) + 
     geom_point() + 
     geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) + 
-    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(
+        x = "Odds Ratio Value",
+        y = "City"
+    )
 ```
 
 I create a plot that shows the estimated ORs and CIs for each city. Most of cities have odds ratio below 1, which indicates there is a bias against non-white victims. Noticeably, the adjusted odds ratio of Boston is the lowest. 
+
+## Problem 2
+### a. Read and clean the data
+```{r}
+birth_weight = 
+    read_csv("./data/birthweight.csv") %>% 
+    mutate(
+        babysex = as.factor(babysex),
+        frace = as.factor(frace),
+        malform = as.factor(malform),
+        mrace = as.factor(mrace)
+    )
+```
+The `birth_weight` dataset consists of roughly 4000 children and includes the following variables:
+
+* `babysex`: baby’s sex (male = 1, female = 2)
+* `bhead`: baby’s head circumference at birth (centimeters)
+* `blength`: baby’s length at birth (centimeteres)
+* `bwt`: baby’s birth weight (grams)
+* `delwt`: mother’s weight at delivery (pounds)
+* `fincome`: family monthly income (in hundreds, rounded)
+* `frace`: father’s race (1= White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other, 9 = Unknown)
+* `gaweeks`: gestational age in weeks
+* `malform`: presence of malformations that could affect weight (0 = absent, 1 = present)
+* `menarche`: mother’s age at menarche (years)
+* `mheigth`: mother’s height (inches)
+* `momage`: mother’s age at delivery (years)
+* `mrace`: mother’s race (1= White, 2 = Black, 3 = Asian, 4 = Puerto Rican, 8 = Other)
+* `parity`: number of live births prior to this pregnancy
+* `pnumlbw`: previous number of low birth weight babies
+* `pnumgsa`: number of prior small for gestational age babies
+* `ppbmi`: mother’s pre-pregnancy BMI
+* `ppwt`: mother’s pre-pregnancy weight (pounds)
+* `smoken`: average number of cigarettes smoked per day during pregnancy
+* `wtgain`: mother’s weight gain during pregnancy (pounds)
+
+### b. Model selection
+```{r}
+mult.fit <- lm(bwt ~ ., data = birth_weight)
+step(mult.fit, direction = 'backward')
+```
+
+I use Stepwise Regression to choose model. Then I get `bwt ~ babysex + bhead + blength + delwt + fincome +  gaweeks + mheight + mrace + parity + ppwt + smoken`. Those predictors also make sense in real life, so I choose those variables as my predictors.
+
+```{r}
+birth_weight_fit <- lm(bwt ~ babysex + bhead + blength + delwt + fincome +  gaweeks + mheight + mrace + parity + ppwt + smoken, data = birth_weight)
+summary(birth_weight_fit)
+```
+
+`birth_weight_fit` : bwt ~ babysex + bhead + blength + delwt + fincome +  gaweeks + mheight + mrace + parity + ppwt + smoken
+
+Take a look at the summary of this model. The ajusted R-squared is 0.7173 which is good.
+
+### c. Make a plot of model residuals against fitted values
+```{r}
+birth_weight_pred_res = 
+    birth_weight %>% 
+    add_predictions(model = birth_weight_fit, var = "pred") %>% 
+    add_residuals(model = birth_weight_fit, var = "resid")
+
+birth_weight_pred_res %>% 
+    ggplot(aes(x = pred, y = resid)) +
+    geom_point(alpha = 0.2) +
+    geom_smooth() +
+    labs(
+        y = "Residual Value",
+        x = "Prediction Value"
+    )
+```
+
+When the prediction is too small(below 2000) or too large (beyond 4000), residuals are not normally distributed. This means that this model isn't correct when the prediction goes too small or too large.
+
+
+### d. Compare models
+```{r}
+set.seed(1)
+
+cv_df =
+    crossv_mc(birth_weight, 100) %>% 
+    mutate(
+        train = map(train, as_tibble),
+        test = map(test, as_tibble)
+        ) %>% 
+    mutate(
+        model_1 = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + mheight + 
+                                     mrace + parity + ppwt + smoken, data = .x)),
+        model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+        model_3 = map(train, ~lm(bwt ~ babysex + blength + bhead + babysex * blength + babysex * bhead + 
+                                     blength * bhead + babysex * blength * bhead, data = .x))
+        ) %>% 
+    mutate(
+        rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+        rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
+        rmse_model_3 = map2_dbl(model_3, test, ~rmse(model = .x, data = .y))
+    )
+
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  gather(key = model, value = rmse) %>% 
+  mutate(model = str_replace(model, "rmse_", ""),
+         model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse, fill = model)) + 
+    geom_violin() +
+    labs(
+        x = "Modle",
+        y = "rmse"
+    )
+```
+
+Compare regression models:
+
+* `model_1`: `bwt ~ babysex + bhead + blength + delwt + fincome +  gaweeks + mheight + mrace + parity + ppwt + smoken`
+* `model_2`: `bwt ~ blength + gaweeks`
+* `model_3`: `bwt ~ babysex + blength + bhead + babysex * blength + babysex * bhead + blength * bhead + babysex * blength * bhead`
+
+Make the comparison in terms of the cross-validated prediction error by use `crossv_mc`, `map` and `map_2dbl`. Plot the prediction error distribution for each model.
+
+From the figure, I find that the `modle_1` is the best and the `modle_3` is the worst. 
+
 
 
 
