@@ -32,17 +32,13 @@ url = "https://raw.githubusercontent.com/washingtonpost/data-homicides/master/ho
 homicide = GET(url) %>% content("raw") %>% read_csv
 homicide_tidy = 
     homicide %>% 
-    mutate(
-        city_state = str_c(city, ", ", state),
-        status = ifelse(disposition %in% c("Closed without arrest", "Open/No arrest"), 0, 1),
-        status = as.factor(status)
-           ) %>% 
+    mutate(city_state = str_c(city, ", ", state),
+           status = ifelse(disposition %in% c("Closed without arrest", "Open/No arrest"), 0, 1),
+           status = as.factor(status)) %>% 
     filter(!(city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"))) %>% 
-    mutate(
-        victim_race = ifelse(victim_race == "White", "white", "non-white"),
-        victim_race = factor(victim_race, levels = c("white", "non-white")),
-        victim_age = as.numeric(victim_age)
-        )
+    mutate(victim_race = ifelse(victim_race == "White", "white", "non-white"),
+           victim_race = factor(victim_race, levels = c("white", "non-white")),
+           victim_age = as.numeric(victim_age))
 str(homicide_tidy)
 ```
 
@@ -89,10 +85,8 @@ bmore_or =
 bmore_ci = 
     bmore_logistic %>% 
     broom::confint_tidy() %>% 
-    mutate(
-        conf.low = exp(conf.low),
-        conf.high = exp(conf.high)
-    )
+    mutate(conf.low = exp(conf.low),
+           conf.high = exp(conf.high))
 
 cbind(bmore_or, bmore_ci) %>% knitr::kable(digits = 3)
 ```
@@ -115,10 +109,8 @@ get_or_ci = function(city_data){
     or_ci = 
     glm %>% 
     broom::confint_tidy() %>% 
-    mutate(
-        conf.low = exp(conf.low),
-        conf.high = exp(conf.high)
-    )
+    mutate(conf.low = exp(conf.low),
+           conf.high = exp(conf.high))
     
     output = cbind(or, or_ci) %>% filter(term == "victim_racenon-white") %>% select(-term)
     output
@@ -163,13 +155,17 @@ I create a plot that shows the estimated ORs and CIs for each city. Most of citi
 ```{r}
 birth_weight = 
     read_csv("./data/birthweight.csv") %>% 
-    mutate(
-        babysex = as.factor(babysex),
-        frace = as.factor(frace),
-        malform = as.factor(malform),
-        mrace = as.factor(mrace)
-    )
+    mutate(babysex = as.factor(babysex),
+           frace = as.factor(frace),
+           malform = as.factor(malform),
+           mrace = as.factor(mrace))
+
+str(birth_weight)
+
+# check if there is NA
+sapply(birth_weight, function(na) sum(is.na(na)))
 ```
+
 The `birth_weight` dataset consists of roughly 4000 children and includes the following variables:
 
 * `babysex`: baby’s sex (male = 1, female = 2)
@@ -192,6 +188,8 @@ The `birth_weight` dataset consists of roughly 4000 children and includes the fo
 * `ppwt`: mother’s pre-pregnancy weight (pounds)
 * `smoken`: average number of cigarettes smoked per day during pregnancy
 * `wtgain`: mother’s weight gain during pregnancy (pounds)
+
+There is no NA in each variables.
 
 ### b. Model selection
 ```{r}
@@ -240,18 +238,14 @@ cv_df =
         train = map(train, as_tibble),
         test = map(test, as_tibble)
         ) %>% 
-    mutate(
-        model_1 = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + mheight + 
+    mutate(model_1 = map(train, ~lm(bwt ~ babysex + bhead + blength + gaweeks + mheight + 
                                      mrace + parity + ppwt + smoken, data = .x)),
-        model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
-        model_3 = map(train, ~lm(bwt ~ babysex + blength + bhead + babysex * blength + babysex * bhead + 
-                                     blength * bhead + babysex * blength * bhead, data = .x))
-        ) %>% 
-    mutate(
-        rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
-        rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
-        rmse_model_3 = map2_dbl(model_3, test, ~rmse(model = .x, data = .y))
-    )
+           model_2 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+           model_3 = map(train, ~lm(bwt ~ babysex + blength + bhead + babysex * blength + babysex * bhead + 
+                                     blength * bhead + babysex * blength * bhead, data = .x))) %>% 
+    mutate(rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+           rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y)),
+           rmse_model_3 = map2_dbl(model_3, test, ~rmse(model = .x, data = .y)))
 
 cv_df %>% 
   select(starts_with("rmse")) %>% 
@@ -272,7 +266,7 @@ Compare regression models:
 * `model_2`: `bwt ~ blength + gaweeks`
 * `model_3`: `bwt ~ babysex + blength + bhead + babysex * blength + babysex * bhead + blength * bhead + babysex * blength * bhead`
 
-Make the comparison in terms of the cross-validated prediction error by use `crossv_mc`, `map` and `map_2dbl`. Plot the prediction error distribution for each model.
+I make the comparison in terms of the cross-validated prediction error by use `crossv_mc`, `map` and `map_2dbl`. Then I plot the prediction error distribution for each model.
 
 From the figure, I find that the `modle_1` is the best and the `modle_3` is the worst. 
 
